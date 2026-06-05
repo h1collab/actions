@@ -1,9 +1,21 @@
 use_default_settings: true
 
+general:
+debug: false
+instance_name: "GitHub Actions SearXNG"
+
 search:
+safe_search: 0
+autocomplete: ""
+autocomplete_min: 4
+default_lang: "auto"
+ban_time_on_fail: 5
+max_ban_time_on_fail: 120
 formats:
 - html
 - json
 
 server:
 limiter: false
+image_proxy: false
+secret_key: "github-actions-searxng"
