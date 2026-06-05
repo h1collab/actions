@@ -1,3 +1,4 @@
+```yaml
 name: 'Deploy SearXNG'
 description: 'Deploy SearXNG search engine and return JSON results'
 author: 'h1collab'
@@ -9,7 +10,7 @@ inputs:
     default: '8888'
 
   image:
-    description: 'Docker image for SearXNG'
+    description: 'Docker image'
     required: false
     default: 'searxng/searxng:latest'
 
@@ -24,17 +25,18 @@ outputs:
     value: ${{ steps.deploy.outputs.status }}
 
   url:
-    description: 'SearXNG URL'
+    description: 'Service URL'
     value: ${{ steps.deploy.outputs.url }}
 
   result:
-    description: 'JSON result'
+    description: 'JSON search result'
     value: ${{ steps.deploy.outputs.result }}
 
 runs:
   using: composite
 
   steps:
+
     - name: Check Docker
       shell: bash
       run: |
@@ -45,7 +47,7 @@ runs:
       run: |
         docker pull "${{ inputs.image }}"
 
-    - name: Deploy
+    - name: Deploy SearXNG
       id: deploy
       shell: bash
       run: |
@@ -61,14 +63,12 @@ runs:
         docker run -d \
           --name searxng-instance \
           -p ${PORT}:8080 \
-          -e SEARXNG_LIMITER=false \
+          -v "${GITHUB_ACTION_PATH}/settings.yml:/etc/searxng/settings.yml:ro" \
           ${IMAGE}
-
-        echo "Waiting for startup..."
 
         READY=false
 
-        for i in $(seq 1 $TIMEOUT)
+        for i in $(seq 1 ${TIMEOUT})
         do
           if curl -s http://localhost:${PORT}/ >/dev/null 2>&1
           then
@@ -82,7 +82,8 @@ runs:
 
         if [ "$READY" != "true" ]
         then
-          echo "Startup timeout"
+
+          echo "Container failed to start"
 
           docker logs searxng-instance || true
 
@@ -90,7 +91,7 @@ runs:
           echo "url=" >> $GITHUB_OUTPUT
 
           echo "result<<EOF" >> $GITHUB_OUTPUT
-          echo "startup timeout" >> $GITHUB_OUTPUT
+          echo "startup timeout"
           echo "EOF" >> $GITHUB_OUTPUT
 
           exit 1
@@ -102,12 +103,8 @@ runs:
         echo "Testing JSON endpoint..."
 
         RESULT=$(curl -s \
-          -H "Accept: application/json" \
-          -H "X-Forwarded-For: 127.0.0.1" \
-          -H "X-Real-IP: 127.0.0.1" \
           "http://localhost:${PORT}/search?q=test&format=json")
 
-        echo "Response:"
         echo "$RESULT"
 
         if echo "$RESULT" | grep -q "403 Forbidden"
@@ -120,8 +117,6 @@ runs:
           echo "$RESULT" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-          docker logs searxng-instance || true
-
           exit 1
         fi
 
@@ -133,4 +128,5 @@ runs:
         echo "EOF" >> $GITHUB_OUTPUT
 
         echo "Deployment successful"
-        echo "URL: http://localhost:${PORT}"
+```
+
