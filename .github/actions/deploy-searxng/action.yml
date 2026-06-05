@@ -4,22 +4,35 @@ author: 'h1collab'
 
 inputs:
   port:
+    description: 'Port to run SearXNG on'
+    required: false
     default: '8888'
+
   image:
+    description: 'Docker image for SearXNG'
+    required: false
     default: 'searxng/searxng:latest'
+
   healthcheck-timeout:
+    description: 'Timeout in seconds'
+    required: false
     default: '60'
 
 outputs:
   status:
+    description: 'Deployment status'
     value: ${{ steps.deploy.outputs.status }}
+
   url:
+    description: 'SearXNG URL'
     value: ${{ steps.deploy.outputs.url }}
+
   result:
+    description: 'JSON result'
     value: ${{ steps.deploy.outputs.result }}
 
 runs:
-  using: 'composite'
+  using: composite
 
   steps:
     - name: Check Docker
@@ -30,37 +43,58 @@ runs:
     - name: Pull Image
       shell: bash
       run: |
-        docker pull ${{ inputs.image }}
+        docker pull "${{ inputs.image }}"
 
     - name: Deploy
       id: deploy
       shell: bash
       run: |
 
-        PORT=${{ inputs.port }}
-        IMAGE=${{ inputs.image }}
-        TIMEOUT=${{ inputs.healthcheck-timeout }}
+        PORT="${{ inputs.port }}"
+        IMAGE="${{ inputs.image }}"
+        TIMEOUT="${{ inputs.healthcheck-timeout }}"
 
         docker rm -f searxng-instance || true
 
-        echo "Starting container..."
+        echo "Starting SearXNG..."
 
         docker run -d \
           --name searxng-instance \
           -p ${PORT}:8080 \
+          -e SEARXNG_LIMITER=false \
           ${IMAGE}
 
-        echo "Waiting..."
+        echo "Waiting for startup..."
+
+        READY=false
 
         for i in $(seq 1 $TIMEOUT)
         do
-          if curl -s http://localhost:${PORT}/ >/dev/null
+          if curl -s http://localhost:${PORT}/ >/dev/null 2>&1
           then
-            echo "Ready!"
+            READY=true
+            echo "SearXNG ready"
             break
           fi
+
           sleep 1
         done
+
+        if [ "$READY" != "true" ]
+        then
+          echo "Startup timeout"
+
+          docker logs searxng-instance || true
+
+          echo "status=failure" >> $GITHUB_OUTPUT
+          echo "url=" >> $GITHUB_OUTPUT
+
+          echo "result<<EOF" >> $GITHUB_OUTPUT
+          echo "startup timeout" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+          exit 1
+        fi
 
         echo "Container logs:"
         docker logs searxng-instance || true
@@ -69,6 +103,8 @@ runs:
 
         RESULT=$(curl -s \
           -H "Accept: application/json" \
+          -H "X-Forwarded-For: 127.0.0.1" \
+          -H "X-Real-IP: 127.0.0.1" \
           "http://localhost:${PORT}/search?q=test&format=json")
 
         echo "Response:"
@@ -76,12 +112,15 @@ runs:
 
         if echo "$RESULT" | grep -q "403 Forbidden"
         then
+
           echo "status=failure" >> $GITHUB_OUTPUT
           echo "url=http://localhost:${PORT}" >> $GITHUB_OUTPUT
 
           echo "result<<EOF" >> $GITHUB_OUTPUT
           echo "$RESULT" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
+
+          docker logs searxng-instance || true
 
           exit 1
         fi
@@ -93,4 +132,5 @@ runs:
         echo "$RESULT" >> $GITHUB_OUTPUT
         echo "EOF" >> $GITHUB_OUTPUT
 
-        echo "Done."
+        echo "Deployment successful"
+        echo "URL: http://localhost:${PORT}"
