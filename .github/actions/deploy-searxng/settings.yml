@@ -1,7 +1,7 @@
 use_default_settings: true
 
 general:
-debug: false
+  debug: false
 instance_name: "GitHub Actions SearXNG"
 
 search:
@@ -12,8 +12,8 @@ default_lang: "auto"
 ban_time_on_fail: 5
 max_ban_time_on_fail: 120
 formats:
-- html
-- json
+  - html
+  - json
 
 server:
 limiter: false
