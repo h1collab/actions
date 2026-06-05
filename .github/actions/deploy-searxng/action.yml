@@ -4,104 +4,93 @@ author: 'h1collab'
 
 inputs:
   port:
-    description: 'Port to run SearXNG on'
-    required: false
     default: '8888'
-  
   image:
-    description: 'Docker image for SearXNG'
-    required: false
     default: 'searxng/searxng:latest'
-  
-  config-url:
-    description: 'Custom SearXNG configuration URL'
-    required: false
-  
   healthcheck-timeout:
-    description: 'Timeout for health check in seconds'
-    required: false
-    default: '30'
+    default: '60'
 
 outputs:
   status:
-    description: 'Deployment status (success/failure)'
     value: ${{ steps.deploy.outputs.status }}
-  
   url:
-    description: 'SearXNG service URL'
     value: ${{ steps.deploy.outputs.url }}
-  
   result:
-    description: 'JSON response from SearXNG'
     value: ${{ steps.deploy.outputs.result }}
 
 runs:
   using: 'composite'
+
   steps:
-    - name: Check Docker availability
+    - name: Check Docker
       shell: bash
       run: |
-        if ! command -v docker &> /dev/null; then
-          echo "Docker is not installed"
-          exit 1
-        fi
         docker --version
 
-    - name: Pull SearXNG image
+    - name: Pull Image
       shell: bash
       run: |
-        echo "Pulling ${{ inputs.image }}..."
         docker pull ${{ inputs.image }}
 
-    - name: Deploy SearXNG container
+    - name: Deploy
       id: deploy
       shell: bash
       run: |
+
         PORT=${{ inputs.port }}
         IMAGE=${{ inputs.image }}
         TIMEOUT=${{ inputs.healthcheck-timeout }}
-        
-        # Remove existing container if it exists
-        docker rm -f searxng-instance 2>/dev/null || true
-        
-        # Run SearXNG container
-        echo "Starting SearXNG on port $PORT..."
+
+        docker rm -f searxng-instance || true
+
+        echo "Starting container..."
+
         docker run -d \
           --name searxng-instance \
-          -p $PORT:8080 \
-          -e SEARXNG_HOSTNAME="localhost:$PORT" \
-          $IMAGE
-        
-        # Wait for service to be ready
-        echo "Waiting for SearXNG to be ready..."
-        ELAPSED=0
-        while [ $ELAPSED -lt $TIMEOUT ]; do
-          if curl -s -f "http://localhost:$PORT/" > /dev/null 2>&1; then
-            echo "✓ SearXNG is ready"
+          -p ${PORT}:8080 \
+          ${IMAGE}
+
+        echo "Waiting..."
+
+        for i in $(seq 1 $TIMEOUT)
+        do
+          if curl -s http://localhost:${PORT}/ >/dev/null
+          then
+            echo "Ready!"
             break
           fi
-          sleep 2
-          ELAPSED=$((ELAPSED + 2))
+          sleep 1
         done
-        
-        if [ $ELAPSED -ge $TIMEOUT ]; then
-          echo "✗ SearXNG failed to start within $TIMEOUT seconds"
-          docker logs searxng-instance
+
+        echo "Container logs:"
+        docker logs searxng-instance || true
+
+        echo "Testing JSON endpoint..."
+
+        RESULT=$(curl -s \
+          -H "Accept: application/json" \
+          "http://localhost:${PORT}/search?q=test&format=json")
+
+        echo "Response:"
+        echo "$RESULT"
+
+        if echo "$RESULT" | grep -q "403 Forbidden"
+        then
           echo "status=failure" >> $GITHUB_OUTPUT
-          echo "url=" >> $GITHUB_OUTPUT
-          echo "result=" >> $GITHUB_OUTPUT
+          echo "url=http://localhost:${PORT}" >> $GITHUB_OUTPUT
+
+          echo "result<<EOF" >> $GITHUB_OUTPUT
+          echo "$RESULT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
           exit 1
         fi
-        
-        # Test with a sample search query
-        echo "Testing SearXNG with sample query..."
-        RESULT=$(curl -s "http://localhost:$PORT/search?q=test&format=json")
-        
-        # Output results
+
         echo "status=success" >> $GITHUB_OUTPUT
-        echo "url=http://localhost:$PORT" >> $GITHUB_OUTPUT
-        echo "result=$RESULT" >> $GITHUB_OUTPUT
-        
-        echo "Deployment successful!"
-        echo "Service URL: http://localhost:$PORT"
-        echo "Search endpoint: http://localhost:$PORT/search?q=QUERY&format=json"
+        echo "url=http://localhost:${PORT}" >> $GITHUB_OUTPUT
+
+        echo "result<<EOF" >> $GITHUB_OUTPUT
+        echo "$RESULT" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+        echo "Done."
